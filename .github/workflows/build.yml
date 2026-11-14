@@ -1,1 +1,76 @@
 
+name: Build APK
+
+"on":
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract source ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ZIP_FILE="$(find . -maxdepth 3 -type f -iname '*.zip' -not -path './.git/*' | head -n 1)"
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "Source ZIP not found!"
+            exit 1
+          fi
+
+          mkdir -p "$RUNNER_TEMP/source"
+          unzip -q "$ZIP_FILE" -d "$RUNNER_TEMP/source"
+
+          SETTINGS_FILE="$(find "$RUNNER_TEMP/source" -type f -name settings.gradle.kts -print -quit)"
+
+          if [ -z "$SETTINGS_FILE" ]; then
+            echo "Android project not found!"
+            exit 1
+          fi
+
+          ANDROID_DIR="$(dirname "$SETTINGS_FILE")"
+          PROJECT_DIR="$(dirname "$ANDROID_DIR")"
+
+          rsync -a --exclude='.github/' "$PROJECT_DIR/" ./
+
+          test -f android-wrapper/app/build.gradle.kts
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Build APK
+        run: gradle -p android-wrapper assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SONGDNA-apk
+          path: android-wrapper/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          
